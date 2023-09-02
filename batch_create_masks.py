@@ -3,19 +3,24 @@ import argparse
 from PIL import Image, ImageDraw
 import easyocr
 from tqdm import tqdm 
-import shutil
 
-def is_touching_edges(x1, y1, x2, y2, img_width, img_height):
-    return x1 <= 0 or y1 <= 0 or x2 >= img_width or y2 >= img_height
+def is_touching_edges(x1, y1, x2, y2, img_width, img_height, xpad, ypad):
+    return x1 <= xpad or y1 <= ypad or x2 >= img_width - xpad or y2 >= img_height - ypad
 
-def is_touching_corners(x1, y1, x2, y2, img_width, img_height):
-    corners = [(0, 0), (img_width, 0), (0, img_height), (img_width, img_height)]
+def is_touching_corners(x1, y1, x2, y2, img_width, img_height, xpad, ypad):
+    corners = [(xpad, ypad), (img_width - xpad, ypad), (xpad, img_height - ypad), (img_width - xpad, img_height - ypad)]
     for cx, cy in corners:
         if x1 <= cx <= x2 and y1 <= cy <= y2:
             return True
     return False
 
-def process_image(image_path, out_folder, include_textfile, xpad=24, ypad=24, corners=False, edges=False):
+
+def process_image(image_path, out_folder, include_textfile, xpad_detect, ypad_detect, xpad_box, ypad_box, corners=False, edges=False, only_largest=False, overwrite=False):
+    mask_filename = os.path.join(out_folder, os.path.basename(image_path))
+    if os.path.exists(mask_filename) and not overwrite:
+        print(f"Mask already exists for {os.path.basename(image_path)}, skipping.")
+        return
+    
     reader = easyocr.Reader(['en'])
     result = reader.readtext(image_path)
     
@@ -23,32 +28,45 @@ def process_image(image_path, out_folder, include_textfile, xpad=24, ypad=24, co
     width, height = image.size
     mask = Image.new("RGB", image.size, "white")
     draw = ImageDraw.Draw(mask)
-    
-    mask_created = False  # Flag to check if any mask is created
 
+    if xpad_detect is None:
+        xpad_detect = int(width * 0.05)
+    if ypad_detect is None:
+        ypad_detect = int(height * 0.05)
+    
+    mask_created = False
+    max_area = 0
+    largest_detection = None
+    
     for detection in result:
         top_left, top_right, bottom_right, bottom_left = detection[0]
         x1, y1 = top_left
         x2, y2 = bottom_right
-        x3, y3 = top_right
-        x4, y4 = bottom_left
+        area = (x2 - x1) * (y2 - y1)
 
-        within_xpad = lambda x: x <= xpad or x >= width - xpad
-        within_ypad = lambda y: y <= ypad or y >= height - ypad
-
-        touches_corner = any(within_xpad(x) and within_ypad(y) for x, y in [(x1, y1), (x2, y2), (x3, y3), (x4, y4)])
-        touches_edge = any(within_xpad(x) or within_ypad(y) for x, y in [(x1, y1), (x2, y2), (x3, y3), (x4, y4)])
+        should_draw = True
         
-        if corners and not touches_corner:
-            continue
-        if edges and not touches_edge:
-            continue
+        if edges:
+            should_draw = is_touching_edges(x1, y1, x2, y2, width, height, xpad_detect, ypad_detect)
+        elif corners:
+            should_draw = is_touching_corners(x1, y1, x2, y2, width, height, xpad_detect, ypad_detect)
 
-        draw.rectangle([x1 - xpad, y1 - ypad, x2 + xpad, y2 + ypad], fill="black")
-        mask_created = True
+        if should_draw:
+            if only_largest:
+                if area > max_area:
+                    max_area = area
+                    largest_detection = detection
+            else:
+                draw.rectangle([x1 - xpad_box, y1 - ypad_box, x2 + xpad_box, y2 + ypad_box], fill="black")
+                mask_created = True
     
+    if only_largest and largest_detection:
+        x1, y1 = largest_detection[0][0]
+        x2, y2 = largest_detection[0][2]
+        draw.rectangle([x1 - xpad_box, y1 - ypad_box, x2 + xpad_box, y2 + ypad_box], fill="black")
+        mask_created = True
+
     if mask_created:
-        mask_filename = os.path.join(out_folder, os.path.basename(image_path))
         mask.save(mask_filename)
         
         if include_textfile:
@@ -56,12 +74,6 @@ def process_image(image_path, out_folder, include_textfile, xpad=24, ypad=24, co
             with open(txt_filename, 'w', encoding='utf-8') as f:
                 for detection in result:
                     f.write(detection[1] + '\n')
-    else:
-        print(f"no mask created for {os.path.basename(image_path)}, moving to undetected folder")
-        undetected_folder = os.path.join(os.path.dirname(image_path), "_undetected")
-        if not os.path.exists(undetected_folder):
-            os.mkdir(undetected_folder)
-        shutil.move(image_path, os.path.join(undetected_folder, os.path.basename(image_path)))
 
 def main():
     parser = argparse.ArgumentParser()
@@ -70,25 +82,24 @@ def main():
     parser.add_argument('--include-textfile', action='store_true', help='Include text file.')
     parser.add_argument('--corners', action='store_true', help='Include only masks touching corners.')
     parser.add_argument('--edges', action='store_true', help='Include masks touching edges.')
-    parser.add_argument('--xpad', type=int, default=24, help='Horizontal padding.')
-    parser.add_argument('--ypad', type=int, default=24, help='Vertical padding.')
+    parser.add_argument('--only-largest', action='store_true', help='Only keep the largest detected mask.')
+    parser.add_argument('--overwrite', action='store_true', help='Overwrite existing mask files.')
+    parser.add_argument('--xpad-detect', type=int, default=None, help='Horizontal padding for detection.')
+    parser.add_argument('--ypad-detect', type=int, default=None, help='Vertical padding for detection.')
+    parser.add_argument('--xpad-box', type=int, default=0, help='Horizontal padding for bounding box.')
+    parser.add_argument('--ypad-box', type=int, default=0, help='Vertical padding for bounding box.')
     args = parser.parse_args()
-
-    if args.corners and args.edges:
-        print("Warning: Using both --corners and --edges is redundant; --edges will take precedence.")
-
+    
     if not os.path.exists(args.out):
         os.mkdir(args.out)
 
-    total_files = len([name for name in os.listdir(args.path) if name.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff'))])
-    processed_files = 0
+    image_files = [f for f in os.listdir(args.path) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff'))]
+    
+    tqdm.write(f"Total images to process: {len(image_files)}")
 
-    for filename in os.listdir(args.path):
-        if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff')):
-            full_path = os.path.join(args.path, filename)
-            process_image(full_path, args.out, args.include_textfile, args.xpad, args.ypad, args.corners, args.edges)
-            processed_files += 1
-            print(f"Progress: {processed_files}/{total_files}")
+    for filename in tqdm(image_files, desc="Processing images"):
+        full_path = os.path.join(args.path, filename)
+        process_image(full_path, args.out, args.include_textfile, args.xpad_detect, args.ypad_detect, args.xpad_box, args.ypad_box, args.corners, args.edges, args.only_largest, args.overwrite)
 
 if __name__ == "__main__":
     main()
