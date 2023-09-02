@@ -44,19 +44,19 @@ def process_image(image_path, out_folder, include_textfile, xpad_detect=None, yp
         x1, y1 = top_left
         x2, y2 = bottom_right
         area = (x2 - x1) * (y2 - y1)
-        print(f"Area: {area}")
 
         area_percent = (area / total_area) * 100
         if area_percent < min_area or area_percent > max_area:
             print(f"Area percentage {area_percent} is not within the range of {min_area} and {max_area}.")
             continue
 
-        should_draw = True
+        should_draw = False
         if edges:
             should_draw = is_touching_edges(x1, y1, x2, y2, width, height, xpad_detect, ypad_detect)
         elif corners:
             should_draw = is_touching_corners(x1, y1, x2, y2, width, height, xpad_detect, ypad_detect)
-            
+        else:
+            should_draw = True
 
         if should_draw:
             if only_largest:
@@ -69,6 +69,7 @@ def process_image(image_path, out_folder, include_textfile, xpad_detect=None, yp
                 x2_draw = min(x2 + xpad_box, width)
                 y2_draw = min(y2 + ypad_box, height)
                 draw.rectangle([x1_draw, y1_draw, x2_draw, y2_draw], fill="black")
+                print(f"Drawing bounding box for {detection[1]}")
                 mask_created = True
 
     if only_largest and largest_detection:
@@ -79,6 +80,7 @@ def process_image(image_path, out_folder, include_textfile, xpad_detect=None, yp
         x2_draw = min(x2 + xpad_box, width)
         y2_draw = min(y2 + ypad_box, height)
         draw.rectangle([x1_draw, y1_draw, x2_draw, y2_draw], fill="black")
+        print(f"Drawing bounding box for {detection[1]}")
         mask_created = True
 
     if mask_created:
