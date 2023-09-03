@@ -1,4 +1,7 @@
+cv2
 Image
 ImageDraw
 easyocr
 tqdm
+numpy
+itertools
