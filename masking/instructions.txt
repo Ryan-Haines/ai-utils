@@ -1,0 +1,1 @@
+python batch_create_masks.py --path C:/path/to/training/images --out C:/path/to/mask/outputs --edges --min-total-area=1 --contain --draw-contain

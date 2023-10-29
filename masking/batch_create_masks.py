@@ -76,12 +76,13 @@ def prepare_boxes(image, **kwargs):
         'ypad_detect': ypad_detect,
     }
 
+
 def draw_boxes(result, draw, **kwargs):
     min_x = 0
     min_y = 0
     max_x = 0
     max_y = 0
-    total_masked_area_percent = 0 
+    total_masked_area_percent = 0
 
     min_area = kwargs.get('min_area')  # Default value if not passed
     max_area = kwargs.get('max_area', 10)  # Default value if not passed
@@ -100,6 +101,7 @@ def draw_boxes(result, draw, **kwargs):
     total_area = kwargs.get('total_area')  # Assuming this is in box_settings
     was_mask_created = False
     detected_boxes = []
+
     for detection in result:
         top_left, top_right, bottom_right, bottom_left = detection[0]
         x1, y1 = top_left
@@ -109,20 +111,17 @@ def draw_boxes(result, draw, **kwargs):
             min_y = y1
             max_x = x2
             max_y = y2
+
         box_width = x2 - x1  # Dimensions of the bounding box, renamed to avoid conflict
         box_height = y2 - y1  # Dimensions of the bounding box, renamed to avoid conflict
-
         is_horizontally_longer = box_width > box_height  # Use 'box_width' and 'box_height' here
 
         if text_direction == 'horizontal' and not is_horizontally_longer and not box_width == box_height:
-            # print(f"\nText direction is horizontal but mask is vertical, skipping.")
             continue
         if text_direction == 'vertical' and is_horizontally_longer and not box_width == box_height:
-            # print(f"\nText direction is vertical but mask is horizontal, skipping.")
             continue
 
         area = (x2 - x1) * (y2 - y1)
-
         area_percent = (area / total_area) * 100
         if area_percent < min_area or area_percent > max_area:
             print(f"\nArea percentage {area_percent} is not within the range of {min_area} and {max_area}.")
@@ -131,12 +130,25 @@ def draw_boxes(result, draw, **kwargs):
         should_draw = False
         if edges:
             should_draw = is_touching_edges(x1, y1, x2, y2, width, height, xpad_detect, ypad_detect)
+            if should_draw:
+                x1_draw, y1_draw, x2_draw, y2_draw = x1, y1, x2, y2
+                if x1 <= xpad_detect:
+                    x1_draw = 0
+                if y1 <= ypad_detect:
+                    y1_draw = 0
+                if x2 >= (width - xpad_detect):
+                    x2_draw = width
+                if y2 >= (height - ypad_detect):
+                    y2_draw = height
+                draw.rectangle([x1_draw, y1_draw, x2_draw, y2_draw], fill="black")
+                was_mask_created = True
+                total_masked_area_percent += area_percent
         elif corners:
             should_draw = is_touching_corners(x1, y1, x2, y2, width, height, xpad_detect, ypad_detect)
         else:
             should_draw = True
 
-        if should_draw:
+        if should_draw and not edges:
             detected_boxes.append((x1, y1, x2, y2))
             min_x = min(min_x, x1)
             min_y = min(min_y, y1)
@@ -154,7 +166,6 @@ def draw_boxes(result, draw, **kwargs):
                 y2_draw = min(y2 + ypad_box, height)
                 draw.rectangle([x1_draw, y1_draw, x2_draw, y2_draw], fill="black")
                 was_mask_created = True
-                # print(f"\nDrawing bounding box for {detection[1]}")
                 total_masked_area_percent += area_percent
 
     if only_largest and largest_detection:
@@ -299,8 +310,8 @@ def main():
     parser.add_argument('--edges', action='store_true', help='Include masks touching edges.')
     parser.add_argument('--only-largest', action='store_true', help='Only keep the largest detected mask.')
     parser.add_argument('--overwrite', action='store_true', help='Overwrite existing mask files.')
-    parser.add_argument('--xpad-detect', type=int, default=None, help='Horizontal padding for detection.')
-    parser.add_argument('--ypad-detect', type=int, default=None, help='Vertical padding for detection.')
+    parser.add_argument('--xpad-detect', type=int, default=256, help='Horizontal padding for detection.')
+    parser.add_argument('--ypad-detect', type=int, default=256, help='Vertical padding for detection.')
     parser.add_argument('--xpad-box', type=int, default=0, help='Horizontal padding for bounding box.')
     parser.add_argument('--ypad-box', type=int, default=0, help='Vertical padding for bounding box.')
     parser.add_argument('--min-area', type=float, default=0.1, help='Minimum area as a percentage to include bounding box. Default is 1%.')

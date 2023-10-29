@@ -1,6 +1,8 @@
 # ai-utils
 A collection of useful scripts related to AI workflows
 
+no warranty provided, use at your own risk.
+
 install with `pip install -r requirements.txt`
 
 to make batch masked images (recommended settings):
@@ -39,6 +41,19 @@ DPM++2m SDE Karras, 10 steps
 
 Resize by 1
 
-mask mode: default (inpaint masked)
+mask mode: INPAINT NOT MASKED!!! (areas to clear are covered with black boxes).
+If WHITE areas are meant to be removed, choose INPAINT MASKED. 
 
 masked content: fill
+
+# boost caption token
+
+For keep tokens, pick the token to advance to the front of the captions. Regex matchs first instance of `foo` to end of string, and boosts:
+`python boost_caption_tokens.py --path ./texts --regex "foo.*$"`
+
+otherwise, just boost a single token:
+`python boost_caption_tokens.py --path ./texts --regex "foo,"`
+
+
+# gather random images for dataset
+python random_gather.py --path=/path/to/image/folders --outpath=/path/to/output/folder --ignore-ends
