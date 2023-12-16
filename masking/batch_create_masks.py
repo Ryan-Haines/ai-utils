@@ -20,6 +20,12 @@ def is_touching_corners(x1, y1, x2, y2, img_width, img_height, xpad, ypad):
             return True
     return False
 
+def calculate_area(x1, y1, x2, y2):
+    return (x2 - x1) * (y2 - y1)
+
+def calculate_area_percentage(area, total_area):
+    return (area / total_area) * 100
+
 def nCr(n, r):
     return math.comb(n, r)
 
@@ -128,23 +134,26 @@ def draw_boxes(result, draw, **kwargs):
             continue
 
         should_draw = False
-        if edges:
-            should_draw = is_touching_edges(x1, y1, x2, y2, width, height, xpad_detect, ypad_detect)
-            if should_draw:
-                x1_draw, y1_draw, x2_draw, y2_draw = x1, y1, x2, y2
-                if x1 <= xpad_detect:
-                    x1_draw = 0
-                if y1 <= ypad_detect:
-                    y1_draw = 0
-                if x2 >= (width - xpad_detect):
-                    x2_draw = width
-                if y2 >= (height - ypad_detect):
-                    y2_draw = height
-                draw.rectangle([x1_draw, y1_draw, x2_draw, y2_draw], fill="black")
-                was_mask_created = True
-                total_masked_area_percent += area_percent
-        elif corners:
+        if corners:
             should_draw = is_touching_corners(x1, y1, x2, y2, width, height, xpad_detect, ypad_detect)
+        elif edges:
+            x1_draw, y1_draw, x2_draw, y2_draw = x1, y1, x2, y2
+            if x1 <= xpad_detect: x1_draw = 0
+            if y1 <= ypad_detect: y1_draw = 0
+            if x2 >= (width - xpad_detect): x2_draw = width
+            if y2 >= (height - ypad_detect): y2_draw = height
+            
+            # Recalculate area and area_percent when box is extended
+            extended_area = calculate_area(x1_draw, y1_draw, x2_draw, y2_draw)
+            extended_area_percent = calculate_area_percentage(extended_area, total_area)
+
+            if extended_area_percent < min_area or extended_area_percent > max_area:
+                print(f"\nExtended area percentage {extended_area_percent} is not within the range of {min_area} and {max_area}.")
+                continue
+
+            draw.rectangle([x1_draw, y1_draw, x2_draw, y2_draw], fill="black")
+            was_mask_created = True
+            total_masked_area_percent += extended_area_percent
         else:
             should_draw = True
 
@@ -297,6 +306,10 @@ def process_image(**kwargs):
     if mask_created and total_masked_area_percent >= kwargs.get('min_total_area', 0.1):
         save_mask(mask, mask_filename, kwargs.get('include_textfile', True), result)
     else:
+        include_blank = kwargs.get('include_empty', True)
+        if include_blank and total_masked_area_percent == 0:
+            mask = Image.new("RGB", image.size, "white")
+            save_mask(mask, mask_filename, kwargs.get('include_textfile', True), result)
         print(f"\nMask was not created for {os.path.basename(image_path)}, total masked area percentage was {total_masked_area_percent} and threshold was {kwargs.get('min_total_area', 0.1)}")
 
     
@@ -304,7 +317,7 @@ def process_image(**kwargs):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--path', required=True, help='Path to the source directory of images.')
-    parser.add_argument('--out', required=True, help='Output directory for masks.')
+    parser.add_argument('--out', required=False, default='./masks', help='Output directory for masks.')
     parser.add_argument('--include-textfile', action='store_true', help='Include text file.')
     parser.add_argument('--corners', action='store_true', help='Include only masks touching corners.')
     parser.add_argument('--edges', action='store_true', help='Include masks touching edges.')
@@ -324,6 +337,7 @@ def main():
     parser.add_argument('--contain', action='store_true', help='Measure around all bounding boxes to find the largest within the --max-area. Useful for eliminating false positives.')
     parser.add_argument('--draw-contain', action='store_true', help='Use in combination with --contain. Draw a bounding box around all bounding boxes. Useful for images with multiple bounding boxes where sometimes one of the middle boxes is missing.')
     parser.add_argument('--contain-under-min', action='store_true', help='Use in combination with --contain and --draw-contain. Only draws contain if the detected boxes have less than the total area already.')
+    parser.add_argument('--include-empty', action='store_true', help='Include blank masks for images that do not meet the --min-total-area threshold.')
 
 
     args = parser.parse_args()
@@ -362,7 +376,7 @@ def main():
     tqdm.write(f"Measure around all bounding boxes to find the largest within the --max-area: {args.contain}")
     tqdm.write(f"Draw a bounding box around all bounding boxes: {args.draw_contain}")
     tqdm.write(f"Only draws contain if the detected boxes have less than the total area already: {args.contain_under_min}")
-
+    tqdm.write(f"Include blank masks for images that do not meet the --min-total-area threshold: {args.include_empty}")
 
     for filename in tqdm(image_files, desc="Processing images"):
         full_path = os.path.join(args.path, filename)
@@ -389,6 +403,7 @@ def main():
             'contain_bounding_boxes': args.contain,
             'draw_contain': args.draw_contain,
             'contain_under_min': args.contain_under_min,
+            'include_empty': args.include_empty,
         }
         process_image(**args_dict)
 
